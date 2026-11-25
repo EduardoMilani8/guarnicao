@@ -221,3 +221,36 @@ def test_ameaca_no_cache_de_pacotes_continua_ameaca(tmp_path, yara):
     pasta.mkdir(parents=True)
     r = analisar(pasta, "atualizar.sh", REVERSE_SHELL, yara)
     assert r.ameaca == "ReverseShell_DevTcp (YARA)"
+
+
+# Caches de navegador (Chrome, Brave, Electron como o app do Claude, Firefox):
+# cópias automáticas de páginas, onde regras genéricas marcam código legítimo.
+CACHES_DE_NAVEGADOR = [
+    ".config/Claude/Partitions/preview/Cache/Cache_Data",
+    ".cache/BraveSoftware/Brave-Browser/Default/Cache/Cache_Data",
+    ".config/BraveSoftware/Brave-Browser/Default/Service Worker/CacheStorage/abc/def",
+    ".config/google-chrome/Default/Service Worker/ScriptCache",
+    ".config/google-chrome/Default/Code Cache/js",
+    ".cache/mozilla/firefox/abc.default-release/cache2/entries",
+]
+
+
+@pytest.mark.parametrize("pasta", CACHES_DE_NAVEGADOR)
+def test_suspeita_no_cache_de_navegador_fica_de_fora(tmp_path, yara, pasta):
+    (tmp_path / pasta).mkdir(parents=True)
+    r = analisar(tmp_path / pasta, "a20626df1c35dc04_0", CURL_SH, yara)
+    assert not r.infectado and not r.suspeito
+
+
+def test_ameaca_no_cache_de_navegador_continua_ameaca(tmp_path, yara):
+    pasta = tmp_path / CACHES_DE_NAVEGADOR[0]
+    pasta.mkdir(parents=True)
+    r = analisar(pasta, "70e212e5fa58ff3b_0", REVERSE_SHELL, yara)
+    assert r.ameaca == "ReverseShell_DevTcp (YARA)"
+
+
+def test_pasta_comum_chamada_cache_continua_suspeita(tmp_path, yara):
+    # Só as pastas de cache dos navegadores: uma pasta "Cache" qualquer segue valendo.
+    pasta = tmp_path / "projetos/Cache"
+    pasta.mkdir(parents=True)
+    assert analisar(pasta, "install.sh", CURL_SH, yara).suspeito

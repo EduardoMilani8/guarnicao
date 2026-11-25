@@ -129,6 +129,12 @@ de uma completa com 25 alarmes falsos):
   `~/.cache/uv`, `~/.cargo/registry`, `~/.npm/_cacache`) só aparece ameaça
   reconhecida (hash, assinatura do ClamAV ou regra YARA forte). Scripts que fazem
   `curl | sh` ou usam base64 são comuns ali e deixam de aparecer como suspeitos.
+- O mesmo vale para os caches de navegador (Chrome, Brave, Firefox e apps Electron,
+  como `Cache/Cache_Data`, `Service Worker/CacheStorage` e `cache2/entries`). São
+  cópias automáticas de páginas, cheias de JavaScript grande que regras genéricas
+  (HTML smuggling, documentos do Office com dados na frente) marcam à toa. O que
+  chega de fato pelo navegador é conferido em Downloads, pelo monitor, e na hora de
+  executar, pelo protetor.
 
 Exclusões e limite de tamanho ficam no `~/.config/guarnicao/config.toml`:
 

@@ -16,10 +16,17 @@ TAMANHO_BLOCO = 64 * 1024
 CACHES_DE_PACOTES = ("/go/pkg/mod/", "/.cache/pip/", "/.cache/uv/",
                      "/.cargo/registry/", "/.npm/_cacache/")
 
+# Caches de navegador (Chrome, Brave, Electron, Firefox): cópias automáticas de
+# páginas, com JavaScript grande que regras genéricas (HTML smuggling, OOXML)
+# marcam à toa. O mesmo critério dos caches de pacotes. O que vier de fato pelo
+# navegador é pego em Downloads (monitor) ou ao executar (protetor).
+CACHES_DE_NAVEGADOR = ("/Cache/Cache_Data/", "/Service Worker/CacheStorage/",
+                       "/Service Worker/ScriptCache/", "/Code Cache/", "/cache2/entries/")
 
-def em_cache_de_pacotes(caminho: Path) -> bool:
+
+def em_cache_automatico(caminho: Path) -> bool:
     texto = str(caminho)
-    return any(trecho in texto for trecho in CACHES_DE_PACOTES)
+    return any(trecho in texto for trecho in CACHES_DE_PACOTES + CACHES_DE_NAVEGADOR)
 
 
 class BancoDeHashes(Protocol):
@@ -113,7 +120,7 @@ def analisar(caminho: Path, banco: BancoDeHashes, yara=None, clamav=None) -> Res
         resultado.camada = "heuristica"
     resultado.pontuacao = min(resultado.pontuacao + pontos, 100)
     resultado.motivos += motivos
-    if em_cache_de_pacotes(caminho):
+    if em_cache_automatico(caminho):
         resultado.pontuacao, resultado.motivos, resultado.camada = 0, [], None
     return resultado
 
