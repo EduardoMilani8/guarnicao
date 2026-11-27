@@ -85,7 +85,10 @@ os seus processos são vistos, que é onde roda o que você baixa. Para desligar
 O timer `guarnicao-atualizar` confere de hora em hora; quando nada mudou, leva
 segundos. A troca é atômica: um download quebrado nunca deixa a Guarnição sem a
 versão anterior. A varredura e o painel avisam quando uma base passa de 2 dias sem
-atualizar.
+atualizar. No ClamAV, antes de avisar, a Guarnição pergunta ao DNS do ClamAV
+(`current.cvd.clamav.net`, o mesmo que o freshclam usa) qual é a versão mais nova:
+se for a que você já tem, o ClamAV só não publicou nada novo (acontece em feriados) e
+não há aviso. Sem internet para conferir, vale a regra dos 2 dias.
 
 ```bash
 .venv/bin/python -m guarnicao atualizar            # atualiza agora

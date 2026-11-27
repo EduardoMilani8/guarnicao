@@ -13,6 +13,7 @@ Instalar: sudo apt install clamav clamav-daemon
 import os
 import re
 import socket
+import struct
 from datetime import datetime
 from pathlib import Path
 
@@ -110,3 +111,73 @@ def conectar() -> ClamAV | None:
         return None
     cliente = ClamAV(caminho)
     return cliente if cliente.ping() else None
+
+
+# O ClamAV publica a versão atual das assinaturas num registro TXT de DNS, o mesmo
+# que o freshclam consulta: "1.4.7:63:28194:1795777200:..." (o 3º campo é a diária).
+REGISTRO_VERSAO = "current.cvd.clamav.net"
+
+
+def ler_versao_publicada(texto: str | None) -> int | None:
+    partes = (texto or "").split(":")
+    return int(partes[2]) if len(partes) > 2 and partes[2].isdigit() else None
+
+
+def versao_publicada(timeout: float = 2.0) -> int | None:
+    """Número da base diária mais nova publicada, ou None (sem rede, resposta estranha)."""
+    try:
+        return ler_versao_publicada(_consultar_txt(REGISTRO_VERSAO, timeout))
+    except (OSError, ValueError, IndexError, struct.error):
+        return None
+
+
+def _servidor_dns() -> str:
+    try:
+        for linha in Path("/etc/resolv.conf").read_text().splitlines():
+            partes = linha.split()
+            if len(partes) >= 2 and partes[0] == "nameserver":
+                return partes[1]
+    except OSError:
+        pass
+    return "127.0.0.53"
+
+
+def _consultar_txt(nome: str, timeout: float) -> str | None:
+    # A biblioteca padrão não lê registros TXT: a pergunta é montada à mão (RFC 1035).
+    ident = int.from_bytes(os.urandom(2), "big")
+    pergunta = (struct.pack(">HHHHHH", ident, 0x0100, 1, 0, 0, 0)
+                + b"".join(bytes([len(p)]) + p.encode() for p in nome.split(".")) + b"\0"
+                + struct.pack(">HH", 16, 1))
+    servidor = _servidor_dns()
+    with socket.socket(socket.AF_INET6 if ":" in servidor else socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.settimeout(timeout)
+        s.sendto(pergunta, (servidor, 53))
+        return ler_txt(s.recv(4096), ident)
+
+
+def _pular_nome(dados: bytes, i: int) -> int:
+    while True:
+        tamanho = dados[i]
+        if tamanho == 0:
+            return i + 1
+        if tamanho & 0xC0 == 0xC0:   # ponteiro para um nome que já apareceu
+            return i + 2
+        i += tamanho + 1
+
+
+def ler_txt(resposta: bytes, ident: int) -> str | None:
+    """O texto do primeiro registro TXT da resposta."""
+    recebido, _, perguntas, respostas = struct.unpack(">HHHH", resposta[:8])
+    if recebido != ident:
+        raise ValueError("resposta de outra pergunta")
+    i = 12
+    for _ in range(perguntas):
+        i = _pular_nome(resposta, i) + 4
+    for _ in range(respostas):
+        i = _pular_nome(resposta, i)
+        tipo, _, _, tamanho = struct.unpack(">HHIH", resposta[i:i + 10])
+        i += 10
+        if tipo == 16:
+            return resposta[i + 1:i + 1 + resposta[i]].decode("ascii", "replace")
+        i += tamanho
+    return None

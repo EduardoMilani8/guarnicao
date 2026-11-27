@@ -66,6 +66,8 @@ class ClamdFalso:
 def clamd(tmp_path, monkeypatch):
     falso = ClamdFalso(tmp_path / "clamd.ctl")
     monkeypatch.setenv("GUARNICAO_CLAMD_SOCKET", str(falso.caminho))
+    # Os testes não usam a rede: a consulta da versão publicada falha como sem internet.
+    monkeypatch.setattr(clamav, "versao_publicada", lambda timeout=2.0: None)
     yield falso
     falso.fechar()
 
@@ -135,6 +137,53 @@ def test_avisa_assinaturas_velhas(clamd):
     agora = datetime(2026, 11, 10).timestamp()   # a versão falsa é de 3/11
     assert bases._aviso_clamav(agora) == ["clamav: assinaturas de 6 dia(s) atrás (o freshclam está rodando?)"]
     assert bases._aviso_clamav(datetime(2026, 11, 3, 20).timestamp()) == []
+
+
+def test_base_antiga_mas_a_mais_nova_publicada_nao_avisa(clamd, monkeypatch):
+    # O ClamAV às vezes passa dias sem publicar (feriado): a base fica "velha" sem
+    # o freshclam ter culpa. Só avisa se existir uma versão mais nova para baixar.
+    from datetime import datetime
+
+    from guarnicao import bases
+    agora = datetime(2026, 11, 10).timestamp()
+    monkeypatch.setattr(clamav, "versao_publicada", lambda timeout=2.0: 27811)
+    assert bases._aviso_clamav(agora) == []
+    monkeypatch.setattr(clamav, "versao_publicada", lambda timeout=2.0: 27818)
+    assert bases._aviso_clamav(agora) == ["clamav: assinaturas de 6 dia(s) atrás (o freshclam está rodando?)"]
+
+
+def test_le_a_versao_diaria_do_registro_publicado():
+    assert clamav.ler_versao_publicada("1.4.7:63:28194:1795777200:1:90:49192:339") == 28194
+    assert clamav.ler_versao_publicada("lixo") is None
+    assert clamav.ler_versao_publicada(None) is None
+
+
+def _resposta_dns(ident, texto, comprimir=True):
+    import struct
+    nome = b"".join(bytes([len(p)]) + p.encode() for p in "current.cvd.clamav.net".split(".")) + b"\0"
+    cabeca = struct.pack(">HHHHHH", ident, 0x8180, 1, 1, 0, 0)
+    pergunta = nome + struct.pack(">HH", 16, 1)
+    dono = b"\xc0\x0c" if comprimir else nome   # ponteiro para o nome da pergunta
+    dado = bytes([len(texto)]) + texto.encode()
+    return cabeca + pergunta + dono + struct.pack(">HHIH", 16, 1, 300, len(dado)) + dado
+
+
+@pytest.mark.parametrize("comprimir", [True, False])
+def test_le_o_texto_da_resposta_dns(comprimir):
+    resposta = _resposta_dns(0x1234, "1.4.7:63:28194:1795777200", comprimir)
+    assert clamav.ler_txt(resposta, 0x1234) == "1.4.7:63:28194:1795777200"
+
+
+def test_resposta_dns_de_outra_pergunta_e_recusada():
+    with pytest.raises(ValueError):
+        clamav.ler_txt(_resposta_dns(0x1234, "1:2:3"), 0x9999)
+
+
+def test_sem_rede_a_versao_publicada_e_desconhecida(monkeypatch):
+    def sem_rede(*_):
+        raise OSError("sem rede")
+    monkeypatch.setattr(clamav, "_consultar_txt", sem_rede)
+    assert clamav.versao_publicada() is None
 
 
 def test_avisa_quando_o_freshclam_esta_parado(clamd, monkeypatch):

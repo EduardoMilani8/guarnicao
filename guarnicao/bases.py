@@ -244,10 +244,15 @@ def _aviso_clamav(agora: float | None) -> list[str]:
     if freshclam_parado():
         return [f"clamav: o freshclam está parado e as assinaturas não vão mais atualizar ({LIGAR_FRESHCLAM})"]
     try:
-        _, _, quando = cliente.versao()
+        _, numero, quando = cliente.versao()
     except OSError:
         return []
     if quando and (agora or time.time()) - quando.timestamp() > VELHA_APOS:
+        # Velha pela data, mas pode ser a mais nova que existe: o ClamAV às vezes
+        # passa dias sem publicar. Sem rede para conferir, vale a data.
+        publicada = clamav.versao_publicada()
+        if numero and publicada and numero >= publicada:
+            return []
         dias = int(((agora or time.time()) - quando.timestamp()) // 86400)
         return [f"clamav: assinaturas de {dias} dia(s) atrás (o freshclam está rodando?)"]
     return []
